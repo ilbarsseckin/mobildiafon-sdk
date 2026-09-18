@@ -1,0 +1,57 @@
+plugins {
+    id 'com.android.library'
+    id 'maven-publish'
+}
+
+android {
+    namespace 'com.mobildiafon.rtc'
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 23                 // Multitek A64 monitör (Android 6.0 / API 23)
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // JitPack / maven-publish için 'release' varyantını yayınla (+ kaynak jar)
+    publishing {
+        singleVariant('release') {
+            withSourcesJar()
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.annotation:annotation:1.7.1'
+
+    // WebRTC (org.webrtc.*) — motorun bel kemiği
+    api 'io.getstream:stream-webrtc-android:1.1.1'
+
+    // Socket.io istemcisi (io.socket.*) + org.json + okhttp geçişli
+    api 'io.socket:socket.io-client:2.1.0'
+}
+
+// JitPack yayınlanan koordinatı git tag'inden üretir:
+//   com.github.<kullanıcı>:<repo>:<tag>
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                from components.release
+                groupId = 'com.mobildiafon'
+                artifactId = 'sdk'
+                version = '1.0.0'   // JitPack tag'i asıl sürümü belirler; bu yereldir
+            }
+        }
+    }
+}

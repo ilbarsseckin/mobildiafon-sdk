@@ -1,0 +1,4 @@
+// Kök build — plugin sürümleri burada sabitlenir, alt modüller sürümsüz uygular.
+plugins {
+    id 'com.android.library' version '8.5.2' apply false
+}
