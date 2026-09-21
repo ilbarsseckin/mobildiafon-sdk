@@ -7,8 +7,11 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -37,6 +40,10 @@ public final class MobilDiafonManager {
     private static final String K_APARTMENT = "md_apartment_id";
     private static final String K_BLD_QR    = "md_building_qr";
     private static final String K_ACTIVE    = "md_active";
+    // ---- DiafonBox (ekransız kapı kutusu) ----
+    private static final String K_BUILDING_ID = "md_building_id";
+    private static final String K_BOX_ACTIVE  = "md_box_active";
+    private static final String K_APARTMENTS  = "md_apartments";   // JSON array önbellek
 
     public interface ActivateCallback {
         /** Ana thread'de çağrılır. */
@@ -161,5 +168,60 @@ public final class MobilDiafonManager {
     private void postMain(final ActivateCallback cb, final boolean ok, final String msg) {
         if (cb == null) return;
         main.post(() -> cb.onResult(ok, msg));
+    }
+
+    // ==================== DiafonBox (ekransız kapı kutusu) ====================
+
+    public boolean isBoxActive()   { return prefs.getBoolean(K_BOX_ACTIVE, false) && !getBuildingQrToken().isEmpty(); }
+    public String  getBuildingId() { return prefs.getString(K_BUILDING_ID, ""); }
+
+    public void clearBox() {
+        prefs.edit().remove(K_BUILDING_ID).remove(K_BLD_QR).remove(K_APARTMENTS)
+             .putBoolean(K_BOX_ACTIVE, false).apply();
+    }
+
+    /**
+     * POST /calls/box-activate  body { deviceId }   (auth YOK — MAC kimliktir)
+     * -> { success, buildingId, buildingQrToken, buildingName, apartments:[{apartmentId,flatNo,name}] }
+     * MAC panelde bir binaya eklenmiş olmalı; değilse success=false döner.
+     */
+    public void activateBox(final ActivateCallback cb) {
+        io.execute(() -> {
+            try {
+                JSONObject body = new JSONObject().put("deviceId", getDeviceId());
+                JSONObject res = postJson(MobilDiafonConfig.get().apiBase + "/calls/box-activate", body, null);
+
+                String qr  = res.optString("buildingQrToken", "");
+                if (res.optBoolean("success", false) && !qr.isEmpty()) {
+                    JSONArray aps = res.optJSONArray("apartments");
+                    prefs.edit()
+                            .putString(K_BLD_QR, qr)
+                            .putString(K_BUILDING_ID, res.optString("buildingId", ""))
+                            .putString(K_APARTMENTS, aps != null ? aps.toString() : "[]")
+                            .putBoolean(K_BOX_ACTIVE, true)
+                            .apply();
+                    postMain(cb, true, res.optString("buildingName", "Kutu aktive edildi"));
+                } else {
+                    postMain(cb, false, res.optString("message",
+                            "Kutu aktivasyonu başarısız (MAC panele eklendi mi?)"));
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "activateBox", e);
+                postMain(cb, false, "Aktivasyon hatası: " + e.getMessage());
+            }
+        });
+    }
+
+    /** Box-activate ile önbelleğe alınan daire listesi. */
+    public List<Apartment> getApartments() {
+        List<Apartment> l = new ArrayList<>();
+        try {
+            JSONArray a = new JSONArray(prefs.getString(K_APARTMENTS, "[]"));
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject o = a.getJSONObject(i);
+                l.add(new Apartment(o.optString("apartmentId"), o.optString("flatNo"), o.optString("name", "")));
+            }
+        } catch (Exception e) { Log.e(TAG, "getApartments", e); }
+        return l;
     }
 }
