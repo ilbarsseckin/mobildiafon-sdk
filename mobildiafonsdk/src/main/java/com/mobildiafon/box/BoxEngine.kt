@@ -49,9 +49,8 @@ internal class BoxEngine private constructor(appCtx: Context) {
         surfaceHelper = SurfaceTextureHelper.create("BoxCapture", eglBase.eglBaseContext)
         videoSource = factory.createVideoSource(capturer.isScreencast)
         capturer.initialize(surfaceHelper, appCtx, videoSource.capturerObserver)
-        // Native 1024x600, fps 15->25 (daha akici). Analog kaynak native oldugu icin
-        // cozunurlugu buyutmek detay katmaz; netlik bitrate ile artar (bkz. BoxCall).
-        capturer.startCapture(1024, 600, 25)
+        // Native 1024x600 @ 15 fps — zayif A64 icin guvenli (25 fps kodlayiciyi boguyordu).
+        capturer.startCapture(1024, 600, 15)
         videoTrack = factory.createVideoTrack("box_video", videoSource)
         videoTrack.setEnabled(true)
 

@@ -82,9 +82,11 @@ object DiafonBox {
     @JvmStatic
     fun prewarm(context: Context) {
         val app = context.applicationContext
-        Thread {
+        // ANA thread'de kur: ses motoru (ADM) ve factory ayni thread'de olmali,
+        // yoksa ses robot gibi cizirdar / goruntu gelmez.
+        main.post {
             try { BoxEngine.get(app) } catch (e: Exception) { android.util.Log.e("DiafonBox", "prewarm", e) }
-        }.start()
+        }
     }
 
     @JvmStatic fun isWarm(): Boolean = BoxEngine.isWarm()

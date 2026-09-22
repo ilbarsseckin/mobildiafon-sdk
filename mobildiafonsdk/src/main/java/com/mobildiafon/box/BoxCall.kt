@@ -77,11 +77,9 @@ class BoxCall internal constructor(
         val c = PeerConnection.RTCConfiguration(cfg.iceServers())
         c.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
         c.continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
-        // --- HIZ: daha az transport + sadece UDP + adayları önceden topla ---
+        // v1.2.0 ile ayni ICE (calisan yapinin birebir aynisi). Ekstra ayar kaldirildi.
         c.bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
         c.rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
-        c.tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.DISABLED
-        c.iceCandidatePoolSize = 2
         pc = engine.factory.createPeerConnection(c, object : PeerConnection.Observer {
             override fun onIceCandidate(cand: IceCandidate) {
                 val s = socket ?: return; val cid = callId ?: return
@@ -114,17 +112,17 @@ class BoxCall internal constructor(
         })
     }
 
-    /** KALİTE: video gönderene yüksek bitrate + çözünürlüğü koru (netlik artar). */
+    /** KALİTE: zayıf A64 için GÜVENLİ — hafif bitrate tavanı, yük altında düşmeye izin ver.
+     *  (MAINTAIN_RESOLUTION + yüksek bitrate kodlayıcıyı boğup görüntüyü kesiyordu.) */
     private fun applyVideoQuality() {
         try {
             val sender = pc?.senders?.firstOrNull { it.track()?.kind() == "video" } ?: return
             val p = sender.parameters ?: return
             if (p.encodings.isNotEmpty()) {
-                p.encodings[0].maxBitrateBps = 2_500_000   // 2.5 Mbps
-                p.encodings[0].minBitrateBps = 1_000_000
-                p.encodings[0].maxFramerate = 30
+                p.encodings[0].maxBitrateBps = 1_200_000   // 1.2 Mbps — box'in kaldirabildigi
+                p.encodings[0].maxFramerate = 15
             }
-            p.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
+            p.degradationPreference = RtpParameters.DegradationPreference.BALANCED  // yuk olunca dussun
             sender.parameters = p
         } catch (e: Exception) { Log.e(TAG, "applyVideoQuality", e) }
     }
