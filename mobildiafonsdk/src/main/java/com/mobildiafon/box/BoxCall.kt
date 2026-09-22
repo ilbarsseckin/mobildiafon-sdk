@@ -12,17 +12,9 @@ import java.util.concurrent.Executors
 
 /**
  * DiafonBox ÇAĞIRAN (caller) motoru — Kotlin.
- * =============================================================================
- * Canlı sözleşmeyle birebir (backend'e dokunmadan):
- *   1) POST /auth/guest-token { qrToken }           -> GUEST jwt
- *   2) socket'e GUEST olarak bağlan (auth.token)
- *   3) emit 'call:start-flat' { apartmentId, source:'qr' }
- *      -> backend dairenin TÜM sakinlerine 'call:incoming' yollar (telefon çalar)
- *   4) 'call:accepted' -> offer üret; webrtc:offer/answer/ice
- *
- * KUTU FARKI: sadece arar. Gelen çağrı / kapı-görüntüle YOK.
- * Kapı açma: backend aktif çağrıda arayana 'call:open-door' yollarsa
- * [BoxListener.onOpenDoor] + global röle tetiklenir. (Backend eki bekler.)
+ * Paylaşılan sıcak [BoxEngine] kullanır (kamera önceden açık -> ilk kare hızlı).
+ * Canlı sözleşmeyle birebir: guest-token -> socket(GUEST) -> call:start-flat ->
+ * webrtc:offer/answer/ice. Sadece arar; gelen çağrı / kapı-görüntüle yok.
  */
 class BoxCall internal constructor(
     ctx: Context,
@@ -39,33 +31,28 @@ class BoxCall internal constructor(
     private val main = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
 
+    private lateinit var engine: BoxEngine
     private var socket: Socket? = null
-    private var eglBase: EglBase? = null
-    private var factory: PeerConnectionFactory? = null
     private var pc: PeerConnection? = null
-    private var capturer: VideoCapturer? = null
-    private var videoSource: VideoSource? = null
-    private var localVideoTrack: VideoTrack? = null
-    private var audioSource: AudioSource? = null
-    private var localAudioTrack: AudioTrack? = null
-    private var surfaceHelper: SurfaceTextureHelper? = null
     private var remoteVideoTrack: VideoTrack? = null
     private var swapped = false
 
     private var callId: String? = null
     private var peerUserId: String? = null
     private var ended = false
+    private var renderersInited = false
 
     // ============================ başlat ============================
     fun start() {
         if (apartmentId.isEmpty()) { emitState("error:apartmentId yok"); return }
         try {
-            eglBase = EglBase.create()
+            engine = BoxEngine.get(appCtx)   // SICAK: zaten hazırsa anında döner
             initRenderers()
-            initFactory()
             createPeerConnection()
-            startCamera()   // kapı kamerası (index 0)
-            addAudio()
+            // Sıcak track'leri bu çağrının pc'sine ekle (kamera zaten akıyor)
+            pc!!.addTrack(engine.videoTrack, listOf("box_stream"))
+            pc!!.addTrack(engine.audioTrack, listOf("box_stream"))
+            localView?.let { engine.videoTrack.addSink(it) }
             emitState("connecting")
         } catch (e: Exception) {
             Log.e(TAG, "start error", e); emitState("error:" + e.message); hangup(); return
@@ -81,27 +68,21 @@ class BoxCall internal constructor(
     }
 
     private fun initRenderers() {
-        localView?.apply { init(eglBase!!.eglBaseContext, null); setEnableHardwareScaler(true) }
-        remoteView?.apply { init(eglBase!!.eglBaseContext, null); setEnableHardwareScaler(true) }
-    }
-
-    private fun initFactory() {
-        PeerConnectionFactory.initialize(
-            PeerConnectionFactory.InitializationOptions.builder(appCtx).createInitializationOptions()
-        )
-        val enc = DefaultVideoEncoderFactory(eglBase!!.eglBaseContext, true, true)
-        val dec = DefaultVideoDecoderFactory(eglBase!!.eglBaseContext)
-        factory = PeerConnectionFactory.builder()
-            .setVideoEncoderFactory(enc)
-            .setVideoDecoderFactory(dec)
-            .createPeerConnectionFactory()
+        localView?.apply { init(engine.eglBase.eglBaseContext, null); setEnableHardwareScaler(true) }
+        remoteView?.apply { init(engine.eglBase.eglBaseContext, null); setEnableHardwareScaler(true) }
+        renderersInited = true
     }
 
     private fun createPeerConnection() {
         val c = PeerConnection.RTCConfiguration(cfg.iceServers())
         c.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
         c.continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
-        pc = factory!!.createPeerConnection(c, object : PeerConnection.Observer {
+        // --- HIZ: daha az transport + sadece UDP + adayları önceden topla ---
+        c.bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
+        c.rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
+        c.tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.DISABLED
+        c.iceCandidatePoolSize = 2
+        pc = engine.factory.createPeerConnection(c, object : PeerConnection.Observer {
             override fun onIceCandidate(cand: IceCandidate) {
                 val s = socket ?: return; val cid = callId ?: return
                 try {
@@ -133,32 +114,19 @@ class BoxCall internal constructor(
         })
     }
 
-    private fun startCamera() {
-        val en = Camera1Enumerator(false)
-        val names = en.deviceNames
-        if (names.isEmpty()) { emitState("error:kamera yok"); return }
-        capturer = en.createCapturer(names[0], object : CameraVideoCapturer.CameraEventsHandler {
-            override fun onCameraError(s: String?) { Log.e(TAG, "cam err $s") }
-            override fun onCameraDisconnected() {}
-            override fun onCameraFreezed(s: String?) {}
-            override fun onCameraOpening(s: String?) {}
-            override fun onFirstFrameAvailable() {}
-            override fun onCameraClosed() {}
-        })
-        surfaceHelper = SurfaceTextureHelper.create("CaptureThread", eglBase!!.eglBaseContext)
-        videoSource = factory!!.createVideoSource(capturer!!.isScreencast)
-        capturer!!.initialize(surfaceHelper, appCtx, videoSource!!.capturerObserver)
-        // Analog kapı kamerası (V4L2) tipik 1024x600@15 — mevcut monitörle aynı.
-        capturer!!.startCapture(1024, 600, 15)
-        localVideoTrack = factory!!.createVideoTrack("box_video", videoSource)
-        localView?.let { localVideoTrack!!.addSink(it) }
-        pc!!.addTrack(localVideoTrack, listOf("box_stream"))
-    }
-
-    private fun addAudio() {
-        audioSource = factory!!.createAudioSource(MediaConstraints())
-        localAudioTrack = factory!!.createAudioTrack("box_audio", audioSource)
-        pc!!.addTrack(localAudioTrack, listOf("box_stream"))
+    /** KALİTE: video gönderene yüksek bitrate + çözünürlüğü koru (netlik artar). */
+    private fun applyVideoQuality() {
+        try {
+            val sender = pc?.senders?.firstOrNull { it.track()?.kind() == "video" } ?: return
+            val p = sender.parameters ?: return
+            if (p.encodings.isNotEmpty()) {
+                p.encodings[0].maxBitrateBps = 2_500_000   // 2.5 Mbps
+                p.encodings[0].minBitrateBps = 1_000_000
+                p.encodings[0].maxFramerate = 30
+            }
+            p.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
+            sender.parameters = p
+        } catch (e: Exception) { Log.e(TAG, "applyVideoQuality", e) }
     }
 
     // ============================ sinyalleşme ============================
@@ -185,6 +153,7 @@ class BoxCall internal constructor(
                 val sdp = d.optJSONObject("sdp") ?: return@on
                 pc?.setRemoteDescription(SimpleSdp("setRemote(answer)"),
                     SessionDescription(SessionDescription.Type.ANSWER, sdp.optString("sdp")))
+                main.post { applyVideoQuality() }   // cevap geldi -> bitrate uygula
             }
             socket!!.on("webrtc:ice") { a ->
                 val d = arg0(a) ?: return@on
@@ -200,13 +169,9 @@ class BoxCall internal constructor(
                 val d = arg0(a); end(d?.optString("reason", "unavailable") ?: "unavailable")
             }
 
-            // KAPI AÇ: backend aktif çağrıda arayan kutuya bunu yollarsa röle sürülür.
-            // (Backend eki gelene kadar sessizce beklenir — mevcut akışı bozmaz.)
+            // KAPI AÇ: backend aktif çağrıda arayan kutuya call:open-door yollarsa röle.
             socket!!.on("call:open-door") {
-                main.post {
-                    listener?.onOpenDoor()
-                    DiafonBox.fireRelay()
-                }
+                main.post { listener?.onOpenDoor(); DiafonBox.fireRelay() }
             }
 
             socket!!.connect()
@@ -242,19 +207,19 @@ class BoxCall internal constructor(
     }
 
     // ============================ kontroller ============================
-    fun setMicMuted(muted: Boolean) { localAudioTrack?.setEnabled(!muted) }
+    fun setMicMuted(muted: Boolean) { try { engine.audioTrack.setEnabled(!muted) } catch (_: Exception) {} }
 
     fun swapRenderers() {
         val lv = localView ?: return; val rv = remoteView ?: return
         main.post {
             try {
-                localVideoTrack?.let { it.removeSink(lv); it.removeSink(rv) }
+                engine.videoTrack.removeSink(lv); engine.videoTrack.removeSink(rv)
                 remoteVideoTrack?.let { it.removeSink(lv); it.removeSink(rv) }
                 swapped = !swapped
                 if (!swapped) {
-                    localVideoTrack?.addSink(lv); remoteVideoTrack?.addSink(rv)
+                    engine.videoTrack.addSink(lv); remoteVideoTrack?.addSink(rv)
                 } else {
-                    remoteVideoTrack?.addSink(lv); localVideoTrack?.addSink(rv)
+                    remoteVideoTrack?.addSink(lv); engine.videoTrack.addSink(rv)
                 }
             } catch (_: Exception) {}
         }
@@ -273,18 +238,17 @@ class BoxCall internal constructor(
         release()
     }
 
+    /** SICAK motoru DAĞITMAZ — sadece bu çağrının pc/socket/görüntü bağlarını kapatır. */
     private fun release() {
-        try { capturer?.stopCapture(); capturer?.dispose() } catch (_: Exception) {}
-        try { surfaceHelper?.dispose() } catch (_: Exception) {}
-        try { videoSource?.dispose() } catch (_: Exception) {}
-        try { audioSource?.dispose() } catch (_: Exception) {}
+        try { localView?.let { engine.videoTrack.removeSink(it) } } catch (_: Exception) {}
+        try { remoteVideoTrack?.let { rt -> localView?.let { rt.removeSink(it) }; remoteView?.let { rt.removeSink(it) } } } catch (_: Exception) {}
         try { pc?.close() } catch (_: Exception) {}
-        try { factory?.dispose() } catch (_: Exception) {}
-        try { localView?.release() } catch (_: Exception) {}
-        try { remoteView?.release() } catch (_: Exception) {}
         try { socket?.disconnect(); socket?.close() } catch (_: Exception) {}
-        try { eglBase?.release() } catch (_: Exception) {}
-        pc = null; factory = null; socket = null
+        if (renderersInited) {
+            try { localView?.release() } catch (_: Exception) {}
+            try { remoteView?.release() } catch (_: Exception) {}
+        }
+        pc = null; socket = null; remoteVideoTrack = null
     }
 
     // ============================ yardımcılar ============================

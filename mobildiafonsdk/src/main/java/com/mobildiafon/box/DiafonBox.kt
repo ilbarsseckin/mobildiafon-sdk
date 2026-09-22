@@ -74,6 +74,21 @@ object DiafonBox {
         }.start()
     }
 
+    /**
+     * Kamerayı + WebRTC motorunu ÖNCEDEN aç (boşta çağır: activate sonrası, ya da
+     * daire seçim ekranı açılınca). Böylece call() anında ilk kare neredeyse hemen gelir.
+     * Arka thread'de çalışır; kamera bu andan itibaren açık kalır.
+     */
+    @JvmStatic
+    fun prewarm(context: Context) {
+        val app = context.applicationContext
+        Thread {
+            try { BoxEngine.get(app) } catch (e: Exception) { android.util.Log.e("DiafonBox", "prewarm", e) }
+        }.start()
+    }
+
+    @JvmStatic fun isWarm(): Boolean = BoxEngine.isWarm()
+
     @JvmStatic fun isActive(): Boolean = api?.isActive == true
     @JvmStatic fun buildingId(): String = api?.buildingId ?: ""
     @JvmStatic fun buildingName(): String = api?.buildingName ?: ""
