@@ -113,6 +113,9 @@ class BoxDoorService internal constructor(
         DiafonBox.busyReason = "view"
         viewerUserId = viewer
         main.postDelayed(stopViewRunnable, MAX_VIEW_MS)   // 45 sn sonra otomatik birak
+        // ÖNCE analog kapi hattini ac (host: callToAnalogDoor) -> camera 0 sinyal alsin.
+        // WebRTC negotiation zaten ~1 sn surdugunden analog hat oturur.
+        DiafonBox.fireDoorViewStart()
         try {
             eglBase = EglBase.create()
             PeerConnectionFactory.initialize(
@@ -188,6 +191,7 @@ class BoxDoorService internal constructor(
 
     private fun stopDoorView() {
         main.removeCallbacks(stopViewRunnable)
+        if (DiafonBox.busyReason == "view") DiafonBox.fireDoorViewStop()   // analog hatti kapat
         try { capturer?.stopCapture(); capturer?.dispose() } catch (_: Exception) {}
         try { surfaceHelper?.dispose() } catch (_: Exception) {}
         try { videoSource?.dispose() } catch (_: Exception) {}

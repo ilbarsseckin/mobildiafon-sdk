@@ -29,6 +29,20 @@ object DiafonBox {
     fun interface Relay { fun openDoor() }
 
     /**
+     * Door-view sırasında analog kapı hattını host yönetir: WebRTC camera 0'ı açmadan
+     * ÖNCE host `I2CUtil.callToAnalogDoor(...)` ile kapı kamerasını camera 0'a bağlar;
+     * bitince `closeAnalogConnection()` ile kapatır. Bu olmadan camera 0 sinyalsizdir.
+     */
+    interface DoorViewHost {
+        fun onDoorViewStart()   // analog kapi hattini ac (callToAnalogDoor) -> camera 0 sinyal alsin
+        fun onDoorViewStop()    // analog hatti kapat (closeAnalogConnection)
+    }
+    private var doorViewHost: DoorViewHost? = null
+    @JvmStatic fun setDoorViewHost(h: DoorViewHost) { doorViewHost = h }
+    internal fun fireDoorViewStart() { try { doorViewHost?.onDoorViewStart() } catch (_: Exception) {} }
+    internal fun fireDoorViewStop()  { try { doorViewHost?.onDoorViewStop() } catch (_: Exception) {} }
+
+    /**
      * Analog hat TEK kaynak: aynı anda ya bir çağrı ya bir door-view olabilir.
      * "call" | "view" | null. BoxCall ve BoxDoorService bunu paylaşır; biri meşgulse
      * diğeri başlamaz (bina genelinde tek kaynak — analog hattı kilitlemesin).
