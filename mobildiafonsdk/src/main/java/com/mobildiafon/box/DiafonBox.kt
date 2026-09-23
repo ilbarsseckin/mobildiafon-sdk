@@ -79,17 +79,13 @@ object DiafonBox {
      * daire seçim ekranı açılınca). Böylece call() anında ilk kare neredeyse hemen gelir.
      * Arka thread'de çalışır; kamera bu andan itibaren açık kalır.
      */
+    /**
+     * NO-OP (v1.3.2). Paylaşılan sıcak motor görüntü/ses sorununa yol açtığı için
+     * kaldırıldı; her çağrı kamerayı kendi açıyor (v1.2.0 çalışan davranışı).
+     * API uyumu için bırakıldı — çağırman zararsız, bir şey yapmaz.
+     */
     @JvmStatic
-    fun prewarm(context: Context) {
-        val app = context.applicationContext
-        // ANA thread'de kur: ses motoru (ADM) ve factory ayni thread'de olmali,
-        // yoksa ses robot gibi cizirdar / goruntu gelmez.
-        main.post {
-            try { BoxEngine.get(app) } catch (e: Exception) { android.util.Log.e("DiafonBox", "prewarm", e) }
-        }
-    }
-
-    @JvmStatic fun isWarm(): Boolean = BoxEngine.isWarm()
+    fun prewarm(context: Context) { /* no-op */ }
 
     @JvmStatic fun isActive(): Boolean = api?.isActive == true
     @JvmStatic fun buildingId(): String = api?.buildingId ?: ""
@@ -102,6 +98,25 @@ object DiafonBox {
     /** Aktivasyonu temizle (bina değişimi vb.). */
     @JvmStatic
     fun logout() { api?.clear() }
+
+    // ==================== Kapı servisi (door-view / geniş görüş) ====================
+    private var doorService: BoxDoorService? = null
+
+    /**
+     * Kalıcı kapı bağlantısını başlat: box socket'te açık kalır, backend'e kaydolur
+     * (box:register) ve sakin "kapıyı izle" deyince analog kapı kamerasını ikinci
+     * ekrana (view akışı) yollar. activate() BAŞARILI olduktan sonra çağır.
+     */
+    @JvmStatic
+    fun startDoorService(context: Context) {
+        val a = api ?: return
+        if (!a.isActive) { android.util.Log.w("DiafonBox", "startDoorService: kutu aktif degil"); return }
+        if (doorService == null) doorService = BoxDoorService(context, cfg, a)
+        doorService!!.start()
+    }
+
+    @JvmStatic
+    fun stopDoorService() { doorService?.stop() }
 
     /**
      * Bir daireyi ara. [localView] = kapı kamerası (büyük), [remoteView] = sakin görüntüsü (küçük).
