@@ -28,6 +28,13 @@ object DiafonBox {
 
     fun interface Relay { fun openDoor() }
 
+    /**
+     * Analog hat TEK kaynak: aynı anda ya bir çağrı ya bir door-view olabilir.
+     * "call" | "view" | null. BoxCall ve BoxDoorService bunu paylaşır; biri meşgulse
+     * diğeri başlamaz (bina genelinde tek kaynak — analog hattı kilitlemesin).
+     */
+    @Volatile internal var busyReason: String? = null
+
     private lateinit var appCtx: Context
     private var cfg: BoxConfig = BoxConfig()
     private var api: BoxApi? = null

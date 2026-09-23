@@ -50,6 +50,7 @@ class BoxCall internal constructor(
     // ============================ başlat ============================
     fun start() {
         if (apartmentId.isEmpty()) { emitState("error:apartmentId yok"); return }
+        DiafonBox.busyReason = "call"   // analog hat kilidi (door-view baslamasin)
         try {
             eglBase = EglBase.create()
             initRenderers()
@@ -271,6 +272,7 @@ class BoxCall internal constructor(
         try { socket?.disconnect(); socket?.close() } catch (_: Exception) {}
         try { eglBase?.release() } catch (_: Exception) {}
         pc = null; factory = null; socket = null; remoteVideoTrack = null
+        if (DiafonBox.busyReason == "call") DiafonBox.busyReason = null   // hatti birak
     }
 
     // ============================ yardımcılar ============================

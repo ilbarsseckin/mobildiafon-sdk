@@ -26,7 +26,12 @@ class BoxDoorService internal constructor(
     private val cfg: BoxConfig,
     private val api: BoxApi
 ) {
-    companion object { private const val TAG = "DiafonBoxDoorSvc" }
+    companion object {
+        private const val TAG = "DiafonBoxDoorSvc"
+        private const val MAX_VIEW_MS = 45_000L   // analog hatti uzun tutma: 45 sn sonra otomatik kapat
+    }
+
+    private val stopViewRunnable = Runnable { stopDoorView() }
 
     private val appCtx = ctx.applicationContext
     private val main = Handler(Looper.getMainLooper())
@@ -97,8 +102,17 @@ class BoxDoorService internal constructor(
     /** door:view geldi: analog kapı kamerasını video-only "view" akışıyla viewer'a yolla. */
     private fun startDoorView(viewer: String?) {
         if (viewer == null) return
+        // Analog hat TEK kaynak: cagri varsa ya da baska izleme varsa -> mesgul.
+        val busy = DiafonBox.busyReason
+        if (busy != null && busy != "view") {
+            try { socket?.emit("door:view-busy", JSONObject().put("viewerUserId", viewer).put("reason", busy)) } catch (_: Exception) {}
+            Log.d(TAG, "door-view reddedildi (mesgul: $busy)")
+            return
+        }
         stopDoorView()
+        DiafonBox.busyReason = "view"
         viewerUserId = viewer
+        main.postDelayed(stopViewRunnable, MAX_VIEW_MS)   // 45 sn sonra otomatik birak
         try {
             eglBase = EglBase.create()
             PeerConnectionFactory.initialize(
@@ -173,6 +187,7 @@ class BoxDoorService internal constructor(
     }
 
     private fun stopDoorView() {
+        main.removeCallbacks(stopViewRunnable)
         try { capturer?.stopCapture(); capturer?.dispose() } catch (_: Exception) {}
         try { surfaceHelper?.dispose() } catch (_: Exception) {}
         try { videoSource?.dispose() } catch (_: Exception) {}
@@ -181,6 +196,7 @@ class BoxDoorService internal constructor(
         try { eglBase?.release() } catch (_: Exception) {}
         capturer = null; surfaceHelper = null; videoSource = null; viewTrack = null
         pcView = null; factory = null; eglBase = null; viewerUserId = null
+        if (DiafonBox.busyReason == "view") DiafonBox.busyReason = null   // hatti birak
     }
 
     fun stop() {
