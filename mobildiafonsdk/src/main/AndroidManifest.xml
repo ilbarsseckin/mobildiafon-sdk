@@ -6,11 +6,19 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
         <!-- Kalıcı alıcı socket servisi. Host manifest'ine gerek yok; kütüphaneden birleşir. -->
         <service
             android:name="com.mobildiafon.rtc.MobilDiafonService"
+            android:exported="false" />
+        <!-- DiafonBox kapı-servisi foreground service: socket'i canlı tutar (Android öldürmez). -->
+        <service
+            android:name="com.mobildiafon.box.BoxForegroundService"
+            android:foregroundServiceType="dataSync"
             android:exported="false" />
     </application>
 </manifest>

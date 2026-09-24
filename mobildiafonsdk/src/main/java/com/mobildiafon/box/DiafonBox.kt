@@ -136,12 +136,26 @@ object DiafonBox {
     fun startDoorService(context: Context) {
         val a = api ?: return
         if (!a.isActive) { android.util.Log.w("DiafonBox", "startDoorService: kutu aktif degil"); return }
-        if (doorService == null) doorService = BoxDoorService(context, cfg, a)
+        // Kalici foreground service olarak calistir -> Android surecı oldurmez,
+        // backend restart'inda socket saniyeler icinde yeniden baglanir.
+        BoxForegroundService.start(context.applicationContext)
+    }
+
+    /** Foreground service tarafindan cagrilir: gercek socket'i baslatir (idempotent). */
+    internal fun beginDoorSocket(context: Context) {
+        val a = api ?: return
+        if (!a.isActive) return
+        if (doorService == null) doorService = BoxDoorService(context.applicationContext, cfg, a)
         doorService!!.start()
     }
 
+    internal fun endDoorSocket() { doorService?.stop() }
+
     @JvmStatic
-    fun stopDoorService() { doorService?.stop() }
+    fun stopDoorService() {
+        try { if (::appCtx.isInitialized) BoxForegroundService.stop(appCtx) } catch (_: Exception) {}
+        doorService?.stop()
+    }
 
     /**
      * Bir daireyi ara. [localView] = kapı kamerası (büyük), [remoteView] = sakin görüntüsü (küçük).
