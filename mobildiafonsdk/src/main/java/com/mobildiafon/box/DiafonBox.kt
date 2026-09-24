@@ -112,6 +112,10 @@ object DiafonBox {
     @JvmStatic fun buildingId(): String = api?.buildingId ?: ""
     @JvmStatic fun buildingName(): String = api?.buildingName ?: ""
 
+    /** Kutunun blogu/kapisi (panelde girilir, box-activate'ten gelir). callToAnalogDoor icin. */
+    @JvmStatic fun getBlock(): Int = api?.block ?: 0
+    @JvmStatic fun getDoor(): Int = api?.door ?: 0
+
     /** Aktivasyonla önbelleğe alınan daire listesi (kutu UI'sinde göster). */
     @JvmStatic
     fun apartments(): List<Apartment> = api?.apartments() ?: emptyList()
