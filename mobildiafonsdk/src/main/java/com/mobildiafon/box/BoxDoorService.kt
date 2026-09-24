@@ -81,6 +81,9 @@ class BoxDoorService internal constructor(
             }
             socket!!.on("door:view-stop") { main.post { stopDoorView() } }
 
+            // Door-view sirasinda "Kapiyi Ac": bina bazli gelir -> global role (setRelay).
+            socket!!.on("call:open-door") { main.post { DiafonBox.fireRelay() } }
+
             socket!!.on("webrtc:answer") { a ->
                 val d = arg0(a) ?: return@on
                 if (d.optString("callId", "") != "view") return@on
@@ -139,7 +142,14 @@ class BoxDoorService internal constructor(
                     } catch (_: Exception) {}
                 }
                 override fun onAddTrack(r: RtpReceiver, s: Array<out MediaStream>?) {}
-                override fun onConnectionChange(s: PeerConnection.PeerConnectionState) {}
+                override fun onConnectionChange(s: PeerConnection.PeerConnectionState) {
+                    // Sakin izlemeyi kapatinca WebRTC duser -> analog hatti HEMEN birak (45sn bekleme)
+                    if (s == PeerConnection.PeerConnectionState.DISCONNECTED ||
+                        s == PeerConnection.PeerConnectionState.FAILED ||
+                        s == PeerConnection.PeerConnectionState.CLOSED) {
+                        main.post { stopDoorView() }
+                    }
+                }
                 override fun onIceCandidatesRemoved(c: Array<out IceCandidate>?) {}
                 override fun onSignalingChange(s: PeerConnection.SignalingState?) {}
                 override fun onIceConnectionChange(s: PeerConnection.IceConnectionState?) {}
