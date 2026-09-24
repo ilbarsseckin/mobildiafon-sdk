@@ -29,6 +29,7 @@ internal class BoxApi(ctx: Context, private val cfg: BoxConfig) {
         private const val K_ACTIVE = "box_active"
         private const val K_BLOCK = "box_block"    // kutunun blogu (1..19)
         private const val K_DOOR = "box_door"      // kutunun kapisi (1..4)
+        private const val K_TYPE = "box_type"      // marka/protokol: Multitek=1, Audio/Netelsan=2
     }
 
     private val prefs = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -40,6 +41,7 @@ internal class BoxApi(ctx: Context, private val cfg: BoxConfig) {
     val isActive: Boolean get() = prefs.getBoolean(K_ACTIVE, false) && buildingQrToken.isNotEmpty()
     val block: Int get() = prefs.getInt(K_BLOCK, 0)   // callToAnalogDoor icin
     val door: Int get() = prefs.getInt(K_DOOR, 0)
+    val boxType: Int get() = prefs.getInt(K_TYPE, 0)  // 1=Multitek, 2=Audio/Netelsan
 
     fun apartments(): List<Apartment> {
         val out = ArrayList<Apartment>()
@@ -63,7 +65,7 @@ internal class BoxApi(ctx: Context, private val cfg: BoxConfig) {
 
     fun clear() {
         prefs.edit().remove(K_QR).remove(K_BID).remove(K_BNAME).remove(K_APTS)
-            .remove(K_BLOCK).remove(K_DOOR).putBoolean(K_ACTIVE, false).apply()
+            .remove(K_BLOCK).remove(K_DOOR).remove(K_TYPE).putBoolean(K_ACTIVE, false).apply()
     }
 
     /**
@@ -83,6 +85,7 @@ internal class BoxApi(ctx: Context, private val cfg: BoxConfig) {
                     .putString(K_APTS, aps?.toString() ?: "[]")
                     .putInt(K_BLOCK, res.optInt("block", 0))
                     .putInt(K_DOOR, res.optInt("door", 0))
+                    .putInt(K_TYPE, res.optInt("box_type", 0))
                     .putBoolean(K_ACTIVE, true)
                     .apply()
                 true to res.optString("buildingName", "Kutu aktive edildi")

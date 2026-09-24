@@ -29,6 +29,7 @@ class BoxDoorService internal constructor(
     companion object {
         private const val TAG = "DiafonBoxDoorSvc"
         private const val MAX_VIEW_MS = 45_000L   // analog hatti uzun tutma: 45 sn sonra otomatik kapat
+        private const val WATCHDOG_MS = 30_000L   // socket sagligini 30 sn'de bir kontrol et
     }
 
     private val stopViewRunnable = Runnable { stopDoorView() }
@@ -46,6 +47,22 @@ class BoxDoorService internal constructor(
     private var surfaceHelper: SurfaceTextureHelper? = null
     private var viewerUserId: String? = null
     @Volatile private var running = false
+    @Volatile private var reconnecting = false
+
+    // WATCHDOG: her 30 sn socket bagli mi diye bakar; kopuksa YENI token cekip yeniden baglanir.
+    // Token suresi dolsa da (30g) ya da socket takilsa da box kendini toparlar -> "cevrimdisi" kalmaz.
+    private val watchdog = object : Runnable {
+        override fun run() {
+            if (!running) return
+            try {
+                if (socket?.connected() != true && !reconnecting) {
+                    Log.d(TAG, "watchdog: socket kopuk -> yeni token ile yeniden baglan")
+                    reconnectFresh()
+                }
+            } catch (_: Exception) {}
+            main.postDelayed(this, WATCHDOG_MS)
+        }
+    }
 
     fun start() {
         if (running) return
@@ -53,8 +70,25 @@ class BoxDoorService internal constructor(
         Thread {
             try {
                 val token = api.guestTokenSync()   // binanın guest token'ı
-                main.post { connect(token) }
+                main.post { connect(token); main.postDelayed(watchdog, WATCHDOG_MS) }
             } catch (e: Exception) { Log.e(TAG, "start", e); running = false }
+        }.start()
+    }
+
+    /** Kopuk socket'i tazele: yeni guest token al, eski socket'i kapat, yeniden bagla (register EVENT_CONNECT'te). */
+    private fun reconnectFresh() {
+        if (reconnecting) return
+        reconnecting = true
+        Thread {
+            try {
+                val token = api.guestTokenSync()
+                main.post {
+                    try { socket?.off(); socket?.disconnect(); socket?.close() } catch (_: Exception) {}
+                    socket = null
+                    connect(token)
+                    reconnecting = false
+                }
+            } catch (e: Exception) { Log.e(TAG, "reconnectFresh", e); reconnecting = false }
         }.start()
     }
 
@@ -215,6 +249,7 @@ class BoxDoorService internal constructor(
 
     fun stop() {
         running = false
+        main.removeCallbacks(watchdog)
         stopDoorView()
         try { socket?.disconnect(); socket?.close() } catch (_: Exception) {}
         socket = null

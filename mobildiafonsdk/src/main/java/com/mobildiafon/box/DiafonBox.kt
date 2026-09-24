@@ -116,6 +116,9 @@ object DiafonBox {
     @JvmStatic fun getBlock(): Int = api?.block ?: 0
     @JvmStatic fun getDoor(): Int = api?.door ?: 0
 
+    /** Kutunun marka/protokol tipi (box-activate'ten): 1=Multitek, 2=Audio/Netelsan, 0=belirsiz. */
+    @JvmStatic fun getBoxType(): Int = api?.boxType ?: 0
+
     /** Aktivasyonla önbelleğe alınan daire listesi (kutu UI'sinde göster). */
     @JvmStatic
     fun apartments(): List<Apartment> = api?.apartments() ?: emptyList()
