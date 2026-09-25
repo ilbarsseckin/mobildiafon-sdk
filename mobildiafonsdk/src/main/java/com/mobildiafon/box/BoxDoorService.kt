@@ -104,8 +104,10 @@ class BoxDoorService internal constructor(
                 try {
                     socket!!.emit("box:register", JSONObject()
                         .put("buildingId", api.buildingId)
-                        .put("mac", DiafonBox.getDeviceId()))
-                    Log.d(TAG, "box baglandi + register: bina=${api.buildingId}")
+                        .put("mac", DiafonBox.getDeviceId())
+                        .put("block", DiafonBox.getBlock())   // cok bloklu binada dogru kapiyi acmak icin
+                        .put("door", DiafonBox.getDoor()))
+                    Log.d(TAG, "box baglandi + register: bina=${api.buildingId} blok=${DiafonBox.getBlock()}")
                 } catch (_: Exception) {}
             }
 

@@ -128,7 +128,15 @@ internal class BoxApi(ctx: Context, private val cfg: BoxConfig) {
                     while (line != null) { sb.append(line); line = r.readLine() }
                 }
             }
-            return if (sb.isEmpty()) JSONObject() else JSONObject(sb.toString())
+            val text = sb.toString().trim()
+            if (text.isEmpty()) return JSONObject()
+            return try {
+                JSONObject(text)
+            } catch (e: Exception) {
+                // Sunucu JSON yerine düz metin/HTML döndürdü (rate-limit, 502, proxy sayfası vb.).
+                // Ham typeMismatch yerine anlamli hata firlat; watchdog bunu yakalar, log kirlenmez.
+                throw Exception("HTTP $code: " + text.take(180))
+            }
         } finally {
             conn.disconnect()
         }
