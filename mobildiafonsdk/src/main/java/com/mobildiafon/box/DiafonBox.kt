@@ -78,35 +78,12 @@ object DiafonBox {
     @JvmStatic
     fun setRelay(r: Relay) { relay = r }
 
-    // Boşta röle tetiğinde analog hattın oturması / röle darbesi için gecikmeler.
-    private const val ANALOG_SETTLE_MS = 700L   // callToAnalogDoor -> hat otursun
-    private const val RELAY_HOLD_MS = 500L      // openDoor darbesi -> sonra hatti kapat
-
     /**
-     * Kapı rölesini sürer. Analog kutuda röle, kapı hattı BAĞLIYKEN çeker; hat kapalıyken
-     * openDoor() tek başına fiziksel röleyi tetiklemez. Bu yüzden:
-     *  - Aktif çağrı/görüntüleme varsa (busyReason != null) analog hat ZATEN bağlı -> sadece openDoor.
-     *  - Boştaysa (ör. QR numaratör "şifre#" ile kapı açma): ÖNCE analog bağlantı (callToAnalogDoor),
-     *    SONRA i2c kapı-aç (openDoor), EN SON i2c kapat (closeAnalogConnection).
+     * Kapı rölesini sürer — tüm donanım sırası (analog bağlantı + monitorAnswered + openDoor +
+     * kapatma, gerekli gecikmelerle) box uygulamasının setRelay{...} lambdasında olmalıdır.
+     * SDK burada sadece o lambdayı çağırır; kendi analog aç/kapa hamlesini YAPMAZ (çakışmasın).
      */
-    internal fun fireRelay() {
-        val idle = (busyReason == null)
-        if (!idle) {
-            // Analog hat zaten bağlı (çağrı/görüntüleme) — sadece röleyi sür, hatti bozma.
-            try { relay?.openDoor() } catch (_: Exception) {}
-            return
-        }
-        // Boşta: analog hattı tek kaynak olarak kilitle, aç-sür-kapat sırasını uygula.
-        busyReason = "relay"
-        try { fireDoorViewStart() } catch (_: Exception) {}          // 1) analog bağlantı (callToAnalogDoor)
-        main.postDelayed({
-            try { relay?.openDoor() } catch (_: Exception) {}        // 2) i2c kapı-aç
-            main.postDelayed({
-                try { fireDoorViewStop() } catch (_: Exception) {}   // 3) i2c kapat (closeAnalogConnection)
-                if (busyReason == "relay") busyReason = null
-            }, RELAY_HOLD_MS)
-        }, ANALOG_SETTLE_MS)
-    }
+    internal fun fireRelay() { try { relay?.openDoor() } catch (_: Exception) {} }
 
     /**
      * POST /calls/box-activate { deviceId }. MAC panele bir binaya eklenmişse başarılı.
