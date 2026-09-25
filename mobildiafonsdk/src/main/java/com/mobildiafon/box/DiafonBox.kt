@@ -86,6 +86,22 @@ object DiafonBox {
     internal fun fireRelay() { try { relay?.openDoor() } catch (_: Exception) {} }
 
     /**
+     * APT / analog santral köprüsü. Misafir web numaratöründen bir numara çevirince backend
+     * `apt:dial` yollar; SDK bunu box'a iletir. Loop=true + I2C DTMF gönderme ve hattı bırakma
+     * (loop=false) TAMAMEN box uygulamasında bu callback'in içinde yapılır — SDK sadece iletir.
+     *   onDial(number): numara geldi -> loop=true + I2CUtil ile DTMF bas
+     *   onHangup():     görüşme bitti -> loop=false + hattı bırak
+     */
+    interface AptDialer {
+        fun onDial(number: String)
+        fun onHangup()
+    }
+    private var aptDialer: AptDialer? = null
+    @JvmStatic fun setAptDialer(d: AptDialer) { aptDialer = d }
+    internal fun fireAptDial(number: String) { try { aptDialer?.onDial(number) } catch (_: Exception) {} }
+    internal fun fireAptHangup() { try { aptDialer?.onHangup() } catch (_: Exception) {} }
+
+    /**
      * POST /calls/box-activate { deviceId }. MAC panele bir binaya eklenmişse başarılı.
      * Sonuç ANA thread'de: onResult(ok, message). Başarılıysa daireler önbelleğe alınır.
      */

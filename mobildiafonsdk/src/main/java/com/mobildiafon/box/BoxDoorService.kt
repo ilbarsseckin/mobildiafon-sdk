@@ -120,6 +120,13 @@ class BoxDoorService internal constructor(
             // Door-view sirasinda "Kapiyi Ac": bina bazli gelir -> global role (setRelay).
             socket!!.on("call:open-door") { main.post { DiafonBox.fireRelay() } }
 
+            // APT / analog santral kopru: numarator numara cevirdi -> box'ta I2C DTMF (setAptDialer).
+            socket!!.on("apt:dial") { a ->
+                val d = arg0(a); val number = d?.optString("number", "") ?: ""
+                if (number.isNotEmpty()) main.post { DiafonBox.fireAptDial(number) }
+            }
+            socket!!.on("apt:hangup") { main.post { DiafonBox.fireAptHangup() } }
+
             socket!!.on("webrtc:answer") { a ->
                 val d = arg0(a) ?: return@on
                 if (d.optString("callId", "") != "view") return@on
