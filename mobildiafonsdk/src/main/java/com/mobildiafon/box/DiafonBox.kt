@@ -63,6 +63,58 @@ object DiafonBox {
         appCtx = context.applicationContext
         cfg = config
         api = BoxApi(appCtx, cfg)
+        registerAudioProbeReceiver()   // teşhis: adb broadcast ile tetiklenir, aksi halde hiçbir şey yapmaz
+    }
+
+    // ==================== Ses yolu teşhisi (izole, sadece elle tetiklenir) ====================
+    /**
+     * APT downlink teşhisi: analog hat Android'de ayrı bir ses cihazı/stream/mod olarak
+     * erişilebilir mi? Bkz. AudioRouteProbe. Tetik:
+     *   adb shell am broadcast -a com.mobildiafon.AUDIO_PROBE --es part all
+     *   adb logcat -s AudioProbe
+     */
+    const val ACTION_AUDIO_PROBE = "com.mobildiafon.AUDIO_PROBE"
+    @Volatile private var probeRunning = false
+    private var probeStateHook: ((Int) -> String?)? = null
+    private var probeReceiverRegistered = false
+
+    /**
+     * Opsiyonel: probe her FortyMedia/I2C durumu için tekrar etsin. Hook i=0,1,2.. için durumu
+     * uygular (arka thread'den çağrılır) ve etiket döner; null = liste bitti. Örn:
+     *   DiafonBox.setAudioProbeStateHook { i -> when (i) {
+     *       0 -> { I2CUtil....; "ahize acik (0x70)" }
+     *       1 -> { I2CUtil.mobilAnswered(); "mobilAnswered" }
+     *       else -> { /* varsayilana don */ null } } }
+     */
+    @JvmStatic fun setAudioProbeStateHook(h: ((Int) -> String?)?) { probeStateHook = h }
+
+    @JvmStatic
+    @JvmOverloads
+    fun runAudioProbe(part: String = "all") {
+        if (!::appCtx.isInitialized) return
+        if (busyReason != null) { android.util.Log.w("AudioProbe", "mesgul ($busyReason) — probe atlandi"); return }
+        if (probeRunning) { android.util.Log.w("AudioProbe", "zaten calisiyor"); return }
+        probeRunning = true
+        Thread {
+            try { AudioRouteProbe(appCtx).run(part, probeStateHook) }
+            catch (e: Exception) { android.util.Log.e("AudioProbe", "probe hata", e) }
+            finally { probeRunning = false }
+        }.start()
+    }
+
+    private fun registerAudioProbeReceiver() {
+        if (probeReceiverRegistered) return
+        try {
+            val r = object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: Context?, i: android.content.Intent?) {
+                    runAudioProbe(i?.getStringExtra("part") ?: "all")
+                }
+            }
+            val f = android.content.IntentFilter(ACTION_AUDIO_PROBE)
+            if (android.os.Build.VERSION.SDK_INT >= 33) appCtx.registerReceiver(r, f, 2 /* RECEIVER_EXPORTED */)
+            else appCtx.registerReceiver(r, f)
+            probeReceiverRegistered = true
+        } catch (e: Exception) { android.util.Log.w("AudioProbe", "receiver kaydi basarisiz: $e") }
     }
 
     /** Kutunun kimliği = MAC (iki nokta olmadan, küçük harf). Aktivasyon buna göre eşleşir. */
