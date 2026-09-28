@@ -354,7 +354,16 @@ class BoxDoorService internal constructor(
                 aptVideoTrack = aptFactory!!.createVideoTrack("apt_video", aptVideoSource)
                 pcApt!!.addTrack(aptVideoTrack, listOf("apt_stream"))
             }
-            aptAudioSource = aptFactory!!.createAudioSource(MediaConstraints())
+            // Hat sinyali icin WebRTC ses islemesini KAPAT (aec/ns/agc/highpass) -> robotik/cazur cuzur bozulmayi onler.
+            val ac = MediaConstraints()
+            ac.mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "false"))
+            ac.mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "false"))
+            ac.mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "false"))
+            ac.mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "false"))
+            ac.mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "false"))
+            ac.mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "false"))
+            ac.mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
+            aptAudioSource = aptFactory!!.createAudioSource(ac)
             aptAudioTrack = aptFactory!!.createAudioTrack("apt_audio", aptAudioSource)
             pcApt!!.addTrack(aptAudioTrack, listOf("apt_stream"))
 
