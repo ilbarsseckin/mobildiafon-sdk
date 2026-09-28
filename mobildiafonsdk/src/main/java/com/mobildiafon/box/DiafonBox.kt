@@ -95,11 +95,15 @@ object DiafonBox {
     interface AptDialer {
         fun onDial(number: String)
         fun onHangup()
+        /** WebRTC misafir baglantisi kuruldu. Ses yolu (FortyMedia downlink) BURADA uygulanmali:
+         *  WebRTC bagli olunca Android ses oturumunu resetliyor; routing'i tam bu anda (yeniden) bas. */
+        fun onAptConnected() {}
     }
     private var aptDialer: AptDialer? = null
     @JvmStatic fun setAptDialer(d: AptDialer) { aptDialer = d }
     internal fun fireAptDial(number: String) { try { aptDialer?.onDial(number) } catch (_: Exception) {} }
     internal fun fireAptHangup() { try { aptDialer?.onHangup() } catch (_: Exception) {} }
+    internal fun fireAptConnected() { try { aptDialer?.onAptConnected() } catch (_: Exception) {} }
 
     /**
      * POST /calls/box-activate { deviceId }. MAC panele bir binaya eklenmişse başarılı.

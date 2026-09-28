@@ -320,7 +320,10 @@ class BoxDoorService internal constructor(
                 }
                 override fun onAddTrack(r: RtpReceiver, s: Array<out MediaStream>?) {}  // misafir sesi -> cihaz hoparloru (I2C ile analog hatta)
                 override fun onConnectionChange(s: PeerConnection.PeerConnectionState) {
-                    if (s == PeerConnection.PeerConnectionState.DISCONNECTED ||
+                    if (s == PeerConnection.PeerConnectionState.CONNECTED) {
+                        // WebRTC bagli -> ses yolu (FortyMedia downlink) simdi uygulanmali (audio session resetlendi)
+                        main.post { DiafonBox.fireAptConnected() }
+                    } else if (s == PeerConnection.PeerConnectionState.DISCONNECTED ||
                         s == PeerConnection.PeerConnectionState.FAILED ||
                         s == PeerConnection.PeerConnectionState.CLOSED) main.post { stopAptCall() }
                 }
