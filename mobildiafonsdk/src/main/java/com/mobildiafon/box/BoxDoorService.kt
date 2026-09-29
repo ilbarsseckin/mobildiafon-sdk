@@ -61,6 +61,9 @@ class BoxDoorService internal constructor(
     private var aptSurface: SurfaceTextureHelper? = null
     private var aptCallId: String? = null
     private var aptGuestId: String? = null
+    // Uzak aciklama (offer) set edilmeden gelen misafir ICE adaylari burada bekler; setRemote sonrasi eklenir.
+    private val aptPendingIce = ArrayList<IceCandidate>()
+    @Volatile private var aptRemoteSet = false
 
     // WATCHDOG: her 30 sn socket bagli mi diye bakar; kopuksa YENI token cekip yeniden baglanir.
     // Token suresi dolsa da (30g) ya da socket takilsa da box kendini toparlar -> "cevrimdisi" kalmaz.
@@ -150,9 +153,10 @@ class BoxDoorService internal constructor(
             // Misafirin teklifi (apt call): box CEVAP verir.
             socket!!.on("webrtc:offer") { a ->
                 val d = arg0(a) ?: return@on
-                if (d.optString("callId", "") != aptCallId) return@on
+                val cid = d.optString("callId", "")
                 val sdp = d.optJSONObject("sdp") ?: return@on
-                main.post { onAptOffer(sdp.optString("sdp")) }
+                // callId kontrolu MAIN'de: apt:dial -> startAptCall (main.post) once calismis olur (sira korunur).
+                main.post { if (cid == aptCallId) onAptOffer(sdp.optString("sdp")) }
             }
 
             socket!!.on("webrtc:answer") { a ->
@@ -168,7 +172,12 @@ class BoxDoorService internal constructor(
                 val c = d.optJSONObject("candidate") ?: return@on
                 val ice = IceCandidate(c.optString("sdpMid"), c.optInt("sdpMLineIndex"), c.optString("candidate"))
                 if (cid == "view") pcView?.addIceCandidate(ice)
-                else if (cid == aptCallId) pcApt?.addIceCandidate(ice)
+                else main.post {
+                    // APT: main'de (offer ile ayni sirada); uzak aciklama yoksa kuyruga al.
+                    if (cid != aptCallId) return@post
+                    val pc = pcApt ?: return@post
+                    if (aptRemoteSet) pc.addIceCandidate(ice) else aptPendingIce.add(ice)
+                }
             }
 
             socket!!.connect()
@@ -323,8 +332,17 @@ class BoxDoorService internal constructor(
                     if (s == PeerConnection.PeerConnectionState.CONNECTED) {
                         // WebRTC bagli -> ses yolu (FortyMedia downlink) simdi uygulanmali (audio session resetlendi)
                         main.post { DiafonBox.fireAptConnected() }
-                    } else if (s == PeerConnection.PeerConnectionState.DISCONNECTED ||
-                        s == PeerConnection.PeerConnectionState.FAILED ||
+                    } else if (s == PeerConnection.PeerConnectionState.DISCONNECTED) {
+                        // DISCONNECTED gecicidir (ag dalgalanmasi) -> 5 sn bekle, hala kopuksa kapat.
+                        val pcAtDisc = pcApt
+                        main.postDelayed({
+                            val p = pcApt
+                            if (p != null && p === pcAtDisc) {
+                                val now = try { p.connectionState() } catch (_: Exception) { null }
+                                if (now != PeerConnection.PeerConnectionState.CONNECTED) stopAptCall()
+                            }
+                        }, 5_000L)
+                    } else if (s == PeerConnection.PeerConnectionState.FAILED ||
                         s == PeerConnection.PeerConnectionState.CLOSED) main.post { stopAptCall() }
                 }
                 override fun onIceCandidatesRemoved(c: Array<out IceCandidate>?) {}
@@ -376,6 +394,14 @@ class BoxDoorService internal constructor(
         val pc = pcApt ?: return
         pc.setRemoteDescription(object : SdpObserver {
             override fun onSetSuccess() {
+                // Bekleyen misafir ICE adaylarini simdi ekle (main'de; ICE handler da main'de calisir).
+                main.post {
+                    if (pcApt !== pc) return@post
+                    aptRemoteSet = true
+                    if (aptPendingIce.isNotEmpty()) Log.d(TAG, "apt: ${aptPendingIce.size} bekleyen ICE eklendi")
+                    aptPendingIce.forEach { pc.addIceCandidate(it) }
+                    aptPendingIce.clear()
+                }
                 pc.createAnswer(object : SdpObserver {
                     override fun onCreateSuccess(answer: SessionDescription) {
                         pc.setLocalDescription(SimpleSdp("apt setLocal"), answer)
@@ -397,11 +423,15 @@ class BoxDoorService internal constructor(
     }
 
     private fun stopAptCall() {
+        aptRemoteSet = false
+        aptPendingIce.clear()
+        // Sira: once PC kapat+dispose (track'leri birakir), sonra kaynaklar, en son factory.
+        try { pcApt?.close() } catch (_: Exception) {}
+        try { pcApt?.dispose() } catch (_: Exception) {}
         try { aptCapturer?.stopCapture(); aptCapturer?.dispose() } catch (_: Exception) {}
         try { aptSurface?.dispose() } catch (_: Exception) {}
         try { aptVideoSource?.dispose() } catch (_: Exception) {}
         try { aptAudioSource?.dispose() } catch (_: Exception) {}
-        try { pcApt?.close() } catch (_: Exception) {}
         try { aptFactory?.dispose() } catch (_: Exception) {}
         try { aptEgl?.release() } catch (_: Exception) {}
         aptCapturer = null; aptSurface = null; aptVideoSource = null; aptVideoTrack = null
